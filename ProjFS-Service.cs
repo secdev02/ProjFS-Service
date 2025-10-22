@@ -51,7 +51,7 @@
  *   DebugMode - Enable debug output (true/false)
  * 
  * Console Mode (for testing):
-     Minimalist file structures.
+ *   Minimalist file structures.
  *   ProjFS-Service.exe /console
  * 
  * Notes:
