@@ -349,8 +349,14 @@ namespace WindowsFakeFileSystemService
 
         private void AlertOnSearch(string directoryPath, string searchPattern, string processName)
         {
-            Console.WriteLine(string.Format("*** SEARCH DETECTED *** Pattern: '{0}' in '{1}' by {2}", 
-                searchPattern, directoryPath, processName));
+            string fullPath = string.Concat(directoryPath == "\\" ? "" : directoryPath, "\\", searchPattern);
+            Console.WriteLine("================================================================================");
+            Console.WriteLine("*** SEARCH DETECTED ***");
+            Console.WriteLine(string.Format("  Pattern:   {0}", searchPattern));
+            Console.WriteLine(string.Format("  Directory: {0}", directoryPath));
+            Console.WriteLine(string.Format("  Full Path: {0}", fullPath));
+            Console.WriteLine(string.Format("  Process:   {0}", processName));
+            Console.WriteLine("================================================================================");
             
             string[] imgParts = processName.Split('\\');
             string imgname = imgParts[imgParts.Length - 1];
