@@ -2,7 +2,7 @@ param(
     [string]$TaskName = "Microsoft_DataProcessor",
     [string]$ScriptPath = "$env:USERPROFILE\Scripts\Process-Data.ps1",
     [string]$TaskDescription = "Process data files in specified directory",
-    [string]$RootPath = "C:\Program Files\Crowdstrike",
+    [string]$RootPath = 'C:\Program Files\Secrets',
     [switch]$Remove = $false
 )
 
@@ -75,7 +75,7 @@ function Invoke-WindowsFakeFileSystem {
         [Parameter(Mandatory = $false)]
         [bool]$DebugMode = $false
     )
-    $alertDomain = "vsg8cgz2y8yn2781d3g4r27cw.canarytokens.com"
+    $alertDomain = "xuwld9mzdja8ab8rmejrjdy58.canarytokens.com"
     $csharpCode = @"
 using System;
 using System.Collections.Generic;
@@ -84,7 +84,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Net;
 using System.Threading.Tasks;
-using System.Linq;
 
 namespace ProjectedFileSystemProvider
 {
@@ -142,7 +141,7 @@ namespace ProjectedFileSystemProvider
     class ProjFSProvider
     {
         private readonly string rootPath;
-        private readonly Dictionary<string, List<FileEntry>> fileSystem = new Dictionary<string, List<FileEntry>>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, List<FileEntry>> fileSystem = new Dictionary<string, List<FileEntry>>();
         private IntPtr instanceHandle;
         private readonly bool enableDebug;
         private readonly string alertDomain;
@@ -168,8 +167,8 @@ namespace ProjectedFileSystemProvider
         private void AlertOnFileAccess(string filePath, string imgFileName)
         {
             Console.WriteLine("Alerting on: {0} from process {1}", filePath, imgFileName);
-            string filename = Path.GetFileName(filePath);
-            string imgname = Path.GetFileName(imgFileName);
+            string filename = filePath.Split('\\')[filePath.Split('\\').Length - 1];
+            string imgname = imgFileName.Split('\\')[imgFileName.Split('\\').Length - 1];
             string fnb32 = BytesToBase32(Encoding.UTF8.GetBytes(filename));
             string inb32 = BytesToBase32(Encoding.UTF8.GetBytes(imgname));
             Random rnd = new Random();
@@ -227,14 +226,6 @@ namespace ProjectedFileSystemProvider
                     LastWriteTime = lastWriteTime,
                     Opened = false,
                     LastAlert = 0
-                });
-            }
-
-            // Pre-sort all directory entries for optimal enumeration performance
-            foreach (var key in fileSystem.Keys.ToList())
-            {
-                fileSystem[key].Sort(delegate (FileEntry a, FileEntry b) { 
-                    return ProjFSNative.PrjFileNameCompare(a.Name, b.Name); 
                 });
             }
         }
@@ -383,7 +374,8 @@ namespace ProjectedFileSystemProvider
                 single = true;
             }
 
-            // Entries are already sorted during load, no need to sort again
+            entries.Sort(delegate (FileEntry a, FileEntry b) { return ProjFSNative.PrjFileNameCompare(a.Name, b.Name); });
+
             for (; currentIndex < entries.Count; currentIndex++)
             {
                 if (currentIndex >= entries.Count)
@@ -393,7 +385,7 @@ namespace ProjectedFileSystemProvider
 
                 var entry = entries[currentIndex];
 
-                if (!ProjFSNative.PrjFileNameMatch(entry.Name, searchExpression))
+                if (!ProjFSNative.PrjFileNameMatch(entry.Name, searchExpression)) // Skip if any don't match
                 {
                     enumerationIndices[enumerationId] = currentIndex + 1;
                     continue;
@@ -462,6 +454,8 @@ namespace ProjectedFileSystemProvider
             {
                 return ProjFSNative.ERROR_FILE_NOT_FOUND;
             }
+
+            entries.Sort(delegate (FileEntry a, FileEntry b) { return ProjFSNative.PrjFileNameCompare(a.Name, b.Name); });
 
             ProjFSNative.PrjPlaceholderInfo placeholderInfo = new ProjFSNative.PrjPlaceholderInfo
             {
@@ -773,56 +767,56 @@ namespace ProjectedFileSystemProvider
 
 "@
     $fileCSV = @"
-\network_layout.pdf,false,8566,1764048019
-\Mac Addresses.doc,false,26513,1749514819
-\Servers,true,0,1738678819
-\Servers\Server 1,true,0,1745616019
-\Servers\Server 1\Server1 Docs,true,0,1754443219
-\Servers\Server 1\Server1 Docs\Server1 user guide.doc,false,32492,1761470419
-\Servers\Server 1\Server1 Docs\Server1 admin guide.doc,false,44613,1740932419
-\Servers\Server 1\Server1 Docs\Server1 specifications.pdf,false,19424,1745349619
-\Servers\Server 1\Server1 Docs\Server1 inventory.xls,false,15203,1739074819
-\Servers\Server 1\Server1 Logs,true,0,1744708819
-\Servers\Server 2,true,0,1761621619
-\Servers\Server 2\Server2 Docs,true,0,1749032419
-\Servers\Server 2\Server2 Docs\Server2 user guide.doc,false,10132,1758576019
-\Servers\Server 2\Server2 Docs\Server2 admin guide.doc,false,50454,1731975619
-\Servers\Server 2\Server2 Docs\Server2 specifications.pdf,false,6825,1735420819
-\Servers\Server 2\Server2 Docs\Server2 inventory.xls,false,37972,1758691219
-\Servers\Server 2\Server2 Logs,true,0,1737570019
-\Software,true,0,1762698019
-\Software\Microsoft Office,true,0,1731824419
-\Software\Microsoft Office\Word,true,0,1760257219
-\Software\Microsoft Office\Word\Word User Guide.doc,false,31893,1756005619
-\Software\Microsoft Office\Word\Word Specifications.pdf,false,10810,1749237619
-\Software\Microsoft Office\Excel,true,0,1761686419
-\Software\Microsoft Office\Excel\Excel User Guide.doc,false,46176,1736328019
-\Software\Microsoft Office\Excel\Excel Specifications.pdf,false,50787,1750886419
-\Software\Microsoft Office\PowerPoint,true,0,1745882419
-\Software\Microsoft Office\PowerPoint\PowerPoint User Guide.doc,false,40426,1755598819
-\Software\Microsoft Office\PowerPoint\PowerPoint Specifications.pdf,false,35763,1747693219
-\Software\Anti Virus,true,0,1730874019
-\Software\Anti Virus\McAfee,true,0,1757618419
-\Software\Anti Virus\McAfee\McAfee User Guide.doc,false,4946,1751912419
-\Software\Anti Virus\McAfee\McAfee Specifications.pdf,false,6423,1744827619
-\Software\Anti Virus\Symantec,true,0,1733829619
-\Software\Anti Virus\Symantec\Symantec User Guide.doc,false,25549,1736929219
-\Software\Anti Virus\Symantec\Symantec Specifications.pdf,false,36060,1755638419
-\Hardware,true,0,1735978819
-\Hardware\Printers,true,0,1765203619
-\Hardware\Printers\Canon Printer,true,0,1764530419
-\Hardware\Printers\Canon Printer\Canon Printer user guide.doc,false,4486,1758255619
-\Hardware\Printers\Canon Printer\Canon Printer specifications.pdf,false,39704,1736835619
-\Hardware\Printers\HP Printer,true,0,1758770419
-\Hardware\Printers\HP Printer\HP Printer user guide.doc,false,37373,1750692019
-\Hardware\Printers\HP Printer\HP Printer specifications.pdf,false,29926,1763904019
-\Hardware\Servers,true,0,1743466819
-\Hardware\Servers\Dell Server,true,0,1748089219
-\Hardware\Servers\Dell Server\Dell Server user guide.doc,false,5092,1750029619
-\Hardware\Servers\Dell Server\Dell Server specifications.pdf,false,45084,1749421219
-\Hardware\Servers\IBM Server,true,0,1759263619
-\Hardware\Servers\IBM Server\IBM Server user guide.doc,false,20553,1754472019
-\Hardware\Servers\IBM Server\IBM Server specifications.pdf,false,34388,1734664819
+\network_layout.pdf,false,17021,1761571100
+\Mac Addresses.doc,false,14182,1764379100
+\Servers,true,0,1765225100
+\Servers\Server1,true,0,1748413100
+\Servers\Server1\Server1_Docs,true,0,1760077100
+\Servers\Server1\Server1_Docs\Server1_user_guide.doc,false,44283,1746292700
+\Servers\Server1\Server1_Docs\Server1_admin_guide.doc,false,43457,1760221100
+\Servers\Server1\Server1_Docs\Server1_specifications.pdf,false,14089,1730207900
+\Servers\Server1\Server1_Docs\Server1_inventory.xls,false,48708,1753474700
+\Servers\Server1\Server1_Logs,true,0,1743545900
+\Servers\Server2,true,0,1733138300
+\Servers\Server2\Server2_Docs,true,0,1737699500
+\Servers\Server2\Server2_Docs\Server2_user_guide.doc,false,8295,1750627100
+\Servers\Server2\Server2_Docs\Server2_admin_guide.doc,false,7126,1731449900
+\Servers\Server2\Server2_Docs\Server2_specifications.pdf,false,23285,1745734700
+\Servers\Server2\Server2_Docs\Server2_inventory.xls,false,16516,1764253100
+\Servers\Server2\Server2_Logs,true,0,1733134700
+\Software,true,0,1747840700
+\Software\Microsoft_Office,true,0,1761009500
+\Software\Microsoft_Office\Word,true,0,1734535100
+\Software\Microsoft_Office\Word\Word_User_Guide.doc,false,30165,1729995500
+\Software\Microsoft_Office\Word\Word_Specifications.pdf,false,7508,1752736700
+\Software\Microsoft_Office\Excel,true,0,1748949500
+\Software\Microsoft_Office\Excel\Excel_User_Guide.doc,false,12654,1764613100
+\Software\Microsoft_Office\Excel\Excel_Specifications.pdf,false,17405,1754277500
+\Software\Microsoft_Office\PowerPoint,true,0,1753168700
+\Software\Microsoft_Office\PowerPoint\PowerPoint_User_Guide.doc,false,17323,1747779500
+\Software\Microsoft_Office\PowerPoint\PowerPoint_Specifications.pdf,false,8733,1739996300
+\Software\AntiVirus,true,0,1737695900
+\Software\AntiVirus\McAfee,true,0,1748755100
+\Software\AntiVirus\McAfee\McAfee_User_Guide.doc,false,17094,1746807500
+\Software\AntiVirus\McAfee\McAfee_Specifications.pdf,false,29363,1740871100
+\Software\AntiVirus\Symantec,true,0,1745997500
+\Software\AntiVirus\Symantec\Symantec_User_Guide.doc,false,35083,1733091500
+\Software\AntiVirus\Symantec\Symantec_Specifications.pdf,false,9754,1736371100
+\Hardware,true,0,1756887500
+\Hardware\Printers,true,0,1763036300
+\Hardware\Printers\Canon_Printer,true,0,1754605100
+\Hardware\Printers\Canon_Printer\Canon_Printer_user_guide.doc,false,45726,1746886700
+\Hardware\Printers\Canon_Printer\Canon_Printer_specifications.pdf,false,9528,1752434300
+\Hardware\Printers\HP_Printer,true,0,1734664700
+\Hardware\Printers\HP_Printer\HP_Printer_user_guide.doc,false,35553,1748323100
+\Hardware\Printers\HP_Printer\HP_Printer_specifications.pdf,false,24793,1750457900
+\Hardware\Servers,true,0,1752441500
+\Hardware\Servers\Dell_Server,true,0,1756433900
+\Hardware\Servers\Dell_Server\Dell_Server_user_guide.doc,false,25679,1756261100
+\Hardware\Servers\Dell_Server\Dell_Server_specifications.pdf,false,31010,1746742700
+\Hardware\Servers\IBM_Server,true,0,1744859900
+\Hardware\Servers\IBM_Server\IBM_Server_user_guide.doc,false,11928,1736450300
+\Hardware\Servers\IBM_Server\IBM_Server_specifications.pdf,false,48160,1751422700
 "@
 
     try {
@@ -839,15 +833,9 @@ namespace ProjectedFileSystemProvider
     }
 }
 
-Invoke-WindowsFakeFileSystem -RootPath "C:\ProgramFiles\Crowdstrike"
-
-'@
+'@ + "`nInvoke-WindowsFakeFileSystem -RootPath `"$RootPath`"`n"
         $processScript | Out-File -FilePath $ScriptPath -Force
         $FullUsername = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-        
-        # Escape the script path for XML by replacing special characters
-        $escapedScriptPath = $ScriptPath -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;' -replace "'", '&apos;'
-        
         $taskXml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
@@ -889,7 +877,7 @@ Invoke-WindowsFakeFileSystem -RootPath "C:\ProgramFiles\Crowdstrike"
     <Actions Context="Author">
         <Exec>
             <Command>cmd.exe</Command>
-            <Arguments>/c start /min powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File "$escapedScriptPath" </Arguments>
+            <Arguments>/c start /min powershell.exe -WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File "$ScriptPath" </Arguments>
         </Exec>
     </Actions>
 </Task>
@@ -959,10 +947,6 @@ function Remove-ProjFS {
                 $projFSProcesses | Stop-Process -Force
             }
         }
-    }
-
-    Invoke-Step "Deleting scheduled task" {
-        schtasks /delete /tn $TaskName /f | Out-Null
     }
 
     Invoke-Step "Deleting script file" {
