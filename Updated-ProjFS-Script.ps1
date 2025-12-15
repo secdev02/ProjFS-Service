@@ -2,7 +2,7 @@ param(
     [string]$TaskName = "Microsoft_DataProcessor",
     [string]$ScriptPath = "$env:USERPROFILE\Scripts\Process-Data.ps1",
     [string]$TaskDescription = "Process data files in specified directory",
-    [string]$RootPath = "C:\ProgramFiles\Crowdstrike",
+    [string]$RootPath = "C:\Program Files\Crowdstrike",
     [switch]$Remove = $false
 )
 
