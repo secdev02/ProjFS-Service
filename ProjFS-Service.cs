@@ -7,7 +7,7 @@
  * Description:
  *   Windows service that creates a virtual file system using the Windows
  *   Projected File System (ProjFS) API. Monitors file access attempts and
- *   sends DNS alerts when virtual files are accessed.
+ *   writes alerts to the Windows Application Event Log when virtual files are accessed.
  * 
  * Dependencies:
  *   - .NET Framework 4.8 or higher
@@ -47,7 +47,6 @@
  * 
  * Configuration (App.config):
  *   RootPath - Virtual file system location (default: C:\Secrets)
- *   AlertDomain - DNS domain for alerts
  *   DebugMode - Enable debug output (true/false)
  * 
  * Console Mode (for testing):
@@ -57,8 +56,7 @@
  * Notes:
  *   - Service runs as LocalSystem by default
  *   - Virtual files are created on-demand, folder may appear empty
- *   - DNS alerts use Base32 encoding for file/process information
- *   - Ensure firewall allows DNS queries for alerting functionality
+ *   - Ensure the Application Event Log source "WindowsFakeFileSystem" exists
  * 
  * License: MIT License
  *
@@ -76,12 +74,10 @@ using System.Configuration.Install;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace WindowsFakeFileSystemService
 {
@@ -126,7 +122,6 @@ namespace WindowsFakeFileSystemService
             try
             {
                 string rootPath = ConfigurationManager.AppSettings["RootPath"] ?? @"C:\Secrets";
-                string alertDomain = ConfigurationManager.AppSettings["AlertDomain"] ?? "TODO-INSERTTOKENHERE";
                 bool debugMode = bool.Parse(ConfigurationManager.AppSettings["DebugMode"] ?? "false");
                 
                 if (!Directory.Exists(rootPath))
@@ -137,7 +132,7 @@ namespace WindowsFakeFileSystemService
                 Guid guid = Guid.NewGuid();
                 
                 string csvData = GetFileSystemCsvData();
-                provider = new ProjFSProvider(rootPath, csvData, alertDomain, debugMode);
+                provider = new ProjFSProvider(rootPath, csvData, debugMode);
                 
                 int result = ProjFSNative.PrjMarkDirectoryAsPlaceholder(rootPath, null, IntPtr.Zero, ref guid);
                 
@@ -243,7 +238,6 @@ namespace WindowsFakeFileSystemService
         static void RunInConsoleMode()
         {
             string rootPath = ConfigurationManager.AppSettings["RootPath"] ?? @"C:\Secrets";
-            string alertDomain = ConfigurationManager.AppSettings["AlertDomain"] ?? "INSERT TOKEN HERE";
             bool debugMode = bool.Parse(ConfigurationManager.AppSettings["DebugMode"] ?? "false");
             
             Console.WriteLine("Virtual Folder: " + rootPath);
@@ -264,7 +258,7 @@ namespace WindowsFakeFileSystemService
 \Network\Network Diagram.pdf,false,2303,1727206186
 \Network\Router Configuration.xml,false,25267,1741508986";
                 
-                var provider = new ProjFSProvider(rootPath, csvData, alertDomain, debugMode);
+                var provider = new ProjFSProvider(rootPath, csvData, debugMode);
                 Guid guid = Guid.NewGuid();
                 int result = ProjFSNative.PrjMarkDirectoryAsPlaceholder(rootPath, null, IntPtr.Zero, ref guid);
                 
@@ -293,52 +287,19 @@ namespace WindowsFakeFileSystemService
         private readonly Dictionary<string, List<FileEntry>> fileSystem = new Dictionary<string, List<FileEntry>>();
         private IntPtr instanceHandle;
         private readonly bool enableDebug;
-        private readonly string alertDomain;
         private Dictionary<Guid, int> enumerationIndices = new Dictionary<Guid, int>();
 
-        public ProjFSProvider(string rootPath, string csvStr, string alertDomain, bool enableDebug)
+        public ProjFSProvider(string rootPath, string csvStr, bool enableDebug)
         {
             this.rootPath = rootPath;
             this.enableDebug = enableDebug;
-            this.alertDomain = alertDomain;
             LoadFileSystemFromCsvString(csvStr);
-        }
-
-        private static string BytesToBase32(byte[] bytes)
-        {
-            const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-            string output = "";
-            for (int bitIndex = 0; bitIndex < bytes.Length * 8; bitIndex += 5)
-            {
-                int dualbyte = bytes[bitIndex / 8] << 8;
-                if (bitIndex / 8 + 1 < bytes.Length)
-                    dualbyte |= bytes[bitIndex / 8 + 1];
-                dualbyte = 0x1f & (dualbyte >> (16 - bitIndex % 8 - 5));
-                output += alphabet[dualbyte];
-            }
-            return output;
         }
 
         private void AlertOnFileAccess(string filePath, string imgFileName)
         {
-            Console.WriteLine(string.Format("Alerting on: {0} from process {1}", filePath, imgFileName));
-            string[] pathParts = filePath.Split('\\');
-            string filename = pathParts[pathParts.Length - 1];
-            string[] imgParts = imgFileName.Split('\\');
-            string imgname = imgParts[imgParts.Length - 1];
-            string fnb32 = BytesToBase32(Encoding.UTF8.GetBytes(filename));
-            string inb32 = BytesToBase32(Encoding.UTF8.GetBytes(imgname));
-            Random rnd = new Random();
-            string uniqueval = "u" + rnd.Next(1000, 10000).ToString() + ".";
-
-            try
-            {
-                Task.Run(() => Dns.GetHostEntry(uniqueval + "f" + fnb32 + ".i" + inb32 + "." + alertDomain));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error: " + ex.Message);
-            }
+            string message = "File accessed: " + filePath + " | Process: " + imgFileName;
+            EventLog.WriteEntry("WindowsFakeFileSystem", message, EventLogEntryType.Warning);
         }
 
         private void LoadFileSystemFromCsvString(string csvStr)
