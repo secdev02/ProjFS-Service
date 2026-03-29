@@ -7,7 +7,7 @@
  * Description:
  *   Windows service that creates a virtual file system using the Windows
  *   Projected File System (ProjFS) API. Monitors file access attempts and
- *   sends DNS alerts when virtual files are accessed.
+ *   writes alerts to the Windows Application Event Log when virtual files are accessed.
  * 
  * Dependencies:
  *   - .NET Framework 4.8 or higher
@@ -15,8 +15,6 @@
  *   - Windows Server 2019 or later
  *   - ProjectedFSLib.dll (Windows system library)
  *   - Windows Projected File System feature must be enabled
-
- * 
  * 
  * Compilation:
  *   csc ProjFS-Service.cs
@@ -31,8 +29,6 @@
  *   3. Start the service:
  *      net start WindowsFakeFileSystem
  * 
- *   
- * 
  * Uninstallation:
  *   1. Stop the service:
  *      net stop WindowsFakeFileSystem
@@ -46,27 +42,19 @@
  *      Disable-WindowsOptionalFeature -Online -FeatureName "Client-ProjFS"
  * 
  * Configuration (App.config):
- *   RootPath - Virtual file system location (default: C:\Secrets)
- *   AlertDomain - DNS domain for alerts
- *   DebugMode - Enable debug output (true/false)
+ *   RootPath  - Virtual file system location (default: C:\Secrets)
+ *   <fileList> section - CSV defining the virtual file system layout
  * 
  * Console Mode (for testing):
- *   Minimalist file structures.
  *   ProjFS-Service.exe /console
  * 
  * Notes:
  *   - Service runs as LocalSystem by default
  *   - Virtual files are created on-demand, folder may appear empty
- *   - DNS alerts use Base32 encoding for file/process information
- *   - Ensure firewall allows DNS queries for alerting functionality
+ *   - Ensure the Application Event Log source "WindowsFakeFileSystem" exists
  * 
  * License: MIT License
- *
- * 
  ******************************************************************************/
-
-
-
 
 using System;
 using System.Collections.Generic;
@@ -76,12 +64,11 @@ using System.Configuration.Install;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
+using System.Xml;
 
 namespace WindowsFakeFileSystemService
 {
@@ -126,8 +113,6 @@ namespace WindowsFakeFileSystemService
             try
             {
                 string rootPath = ConfigurationManager.AppSettings["RootPath"] ?? @"C:\Secrets";
-                string alertDomain = ConfigurationManager.AppSettings["AlertDomain"] ?? "TODO-INSERTTOKENHERE";
-                bool debugMode = bool.Parse(ConfigurationManager.AppSettings["DebugMode"] ?? "false");
                 
                 if (!Directory.Exists(rootPath))
                 {
@@ -136,8 +121,8 @@ namespace WindowsFakeFileSystemService
                 
                 Guid guid = Guid.NewGuid();
                 
-                string csvData = GetFileSystemCsvData();
-                provider = new ProjFSProvider(rootPath, csvData, alertDomain, debugMode);
+                string csvData = (string)ConfigurationManager.GetSection("fileList");
+                provider = new ProjFSProvider(rootPath, csvData);
                 
                 int result = ProjFSNative.PrjMarkDirectoryAsPlaceholder(rootPath, null, IntPtr.Zero, ref guid);
                 
@@ -149,74 +134,6 @@ namespace WindowsFakeFileSystemService
             {
                 EventLog.WriteEntry("WindowsFakeFileSystem", "Error: " + ex.Message, EventLogEntryType.Error);
             }
-        }
-        
-        private string GetFileSystemCsvData()
-        {
-            return @"\Network,true,0,1743942586
-\Network\Network Diagram.pdf,false,2303,1727206186
-\Network\Router Configuration.xml,false,25267,1741508986
-\Network\Switch Configuration.doc,false,1417,1739636986
-\Server,true,0,1752402586
-\Server\Server Inventory.xlsx,false,38366,1735799386
-\Server\Server Configurations.doc,false,29960,1728386986
-\Server\Server Manual.pdf,false,12626,1730197786
-\Server\Server Room Access Log.pdf,false,23237,1730136586
-\Firewall,true,0,1751527786
-\Firewall\Firewall Configuration.doc,false,5246,1728322186
-\Firewall\Firewall Rules.pdf,false,13401,1738927786
-\Firewall\Firewall Logs.xlsx,false,43633,1736926186
-\VPN,true,0,1744586986
-\VPN\VPN Configuration.doc,false,9854,1736177386
-\VPN\VPN Access Logs.pdf,false,38036,1731446986
-\VPN\VPN User List.xlsx,false,5241,1740680986
-\Wireless Network,true,0,1760545786
-\Wireless Network\Wireless Network Configuration.doc,false,42243,1734780586
-\Wireless Network\Wireless Network Access Log.pdf,false,47147,1748708986
-\Wireless Network\Wireless Network Security.pdf,false,17590,1742354986
-\CCTV,true,0,1733984986
-\CCTV\CCTV Configuration.doc,false,19896,1755520186
-\CCTV\CCTV Footage Backup.xlsx,false,29644,1742938186
-\CCTV\CCTV Incident Report.pdf,false,2752,1739932186
-\Access Control,true,0,1733178586
-\Access Control\Access Control Configuration.doc,false,28184,1737556186
-\Access Control\Access Control Audit Log.xlsx,false,33592,1732876186
-\Access Control\Access Control Policy.pdf,false,25825,1731788986
-\Incident Response,true,0,1760621386
-\Incident Response\Incident Response Plan.doc,false,42254,1749252586
-\Incident Response\Incident Report Form.doc,false,9936,1745674186
-\Incident Response\Incident Investigation Report.pdf,false,45521,1736659786
-\Incident Response\Incident Response Team Contact List.xlsx,false,22373,1755574186
-\Antivirus,true,0,1759598986
-\Antivirus\Antivirus Configuration.doc,false,36794,1752125386
-\Antivirus\Antivirus Reports.pdf,false,7548,1759976986
-\Antivirus\Antivirus User Manual.doc,false,34872,1758972586
-\Security Policies,true,0,1754688586
-\Security Policies\IT Security Policy.pdf,false,25935,1749911386
-\Security Policies\Password Policy.doc,false,32981,1753788586
-\Security Policies\Information Security Awareness Training.pptx,false,17951,1748244586
-\Disaster Recovery,true,0,1741278586
-\Disaster Recovery\Disaster Recovery Plan.doc,false,42009,1748096986
-\Disaster Recovery\Disaster Recovery Test Results.xlsx,false,15201,1756268986
-\Disaster Recovery\Backup Details.doc,false,29755,1756780186
-\Disaster Recovery\Recovery Procedures.pdf,false,22633,1760315386
-\IT Infrastructure,true,0,1727432986
-\IT Infrastructure\IT Infrastructure Diagram.pdf,false,31415,1732238986
-\IT Infrastructure\IT Asset Register.xlsx,false,21364,1728437386
-\IT Infrastructure\IT Maintenance Schedule.xlsx,false,3274,1746678586
-\User Management,true,0,1757222986
-\User Management\User Access Management.doc,false,9109,1740907786
-\User Management\User Account Request Form.doc,false,2649,1747607386
-\User Management\User Account Suspension Notification.pdf,false,36469,1727904586
-\User Management\User Account Termination Notification.pdf,false,9072,1737350986
-\Vulnerability Management,true,0,1743391786
-\Vulnerability Management\Vulnerability Assessment Report.doc,false,45541,1759490986
-\Vulnerability Management\Vulnerability Scan Results.xlsx,false,6835,1756780186
-\Vulnerability Management\Vulnerability Remediation Procedure.pdf,false,9861,1756654186
-\Training and Education,true,0,1743373786
-\Training and Education\IT Security Training Schedule.xlsx,false,31002,1742869786
-\Training and Education\IT Security Training Material.pdf,false,9933,1739276986
-\Training and Education\IT Security Quiz.doc,false,22850,1747384186";
         }
     }
 
@@ -243,11 +160,8 @@ namespace WindowsFakeFileSystemService
         static void RunInConsoleMode()
         {
             string rootPath = ConfigurationManager.AppSettings["RootPath"] ?? @"C:\Secrets";
-            string alertDomain = ConfigurationManager.AppSettings["AlertDomain"] ?? "INSERT TOKEN HERE";
-            bool debugMode = bool.Parse(ConfigurationManager.AppSettings["DebugMode"] ?? "false");
             
             Console.WriteLine("Virtual Folder: " + rootPath);
-            Console.WriteLine("Debug Mode: " + debugMode);
             
             try
             {
@@ -259,12 +173,10 @@ namespace WindowsFakeFileSystemService
                 
                 DriveInfo drive = new DriveInfo(Path.GetPathRoot(rootPath));
                 Console.WriteLine("Available free space: " + drive.AvailableFreeSpace + " bytes");
-                // Minimalst File / Folder for Debugging.
-                string csvData = @"\Network,true,0,1743942586
-\Network\Network Diagram.pdf,false,2303,1727206186
-\Network\Router Configuration.xml,false,25267,1741508986";
+
+                string csvData = (string)ConfigurationManager.GetSection("fileList");
                 
-                var provider = new ProjFSProvider(rootPath, csvData, alertDomain, debugMode);
+                var provider = new ProjFSProvider(rootPath, csvData);
                 Guid guid = Guid.NewGuid();
                 int result = ProjFSNative.PrjMarkDirectoryAsPlaceholder(rootPath, null, IntPtr.Zero, ref guid);
                 
@@ -292,53 +204,18 @@ namespace WindowsFakeFileSystemService
         private readonly string rootPath;
         private readonly Dictionary<string, List<FileEntry>> fileSystem = new Dictionary<string, List<FileEntry>>();
         private IntPtr instanceHandle;
-        private readonly bool enableDebug;
-        private readonly string alertDomain;
         private Dictionary<Guid, int> enumerationIndices = new Dictionary<Guid, int>();
 
-        public ProjFSProvider(string rootPath, string csvStr, string alertDomain, bool enableDebug)
+        public ProjFSProvider(string rootPath, string csvStr)
         {
             this.rootPath = rootPath;
-            this.enableDebug = enableDebug;
-            this.alertDomain = alertDomain;
             LoadFileSystemFromCsvString(csvStr);
-        }
-
-        private static string BytesToBase32(byte[] bytes)
-        {
-            const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-            string output = "";
-            for (int bitIndex = 0; bitIndex < bytes.Length * 8; bitIndex += 5)
-            {
-                int dualbyte = bytes[bitIndex / 8] << 8;
-                if (bitIndex / 8 + 1 < bytes.Length)
-                    dualbyte |= bytes[bitIndex / 8 + 1];
-                dualbyte = 0x1f & (dualbyte >> (16 - bitIndex % 8 - 5));
-                output += alphabet[dualbyte];
-            }
-            return output;
         }
 
         private void AlertOnFileAccess(string filePath, string imgFileName)
         {
-            Console.WriteLine(string.Format("Alerting on: {0} from process {1}", filePath, imgFileName));
-            string[] pathParts = filePath.Split('\\');
-            string filename = pathParts[pathParts.Length - 1];
-            string[] imgParts = imgFileName.Split('\\');
-            string imgname = imgParts[imgParts.Length - 1];
-            string fnb32 = BytesToBase32(Encoding.UTF8.GetBytes(filename));
-            string inb32 = BytesToBase32(Encoding.UTF8.GetBytes(imgname));
-            Random rnd = new Random();
-            string uniqueval = "u" + rnd.Next(1000, 10000).ToString() + ".";
-
-            try
-            {
-                Task.Run(() => Dns.GetHostEntry(uniqueval + "f" + fnb32 + ".i" + inb32 + "." + alertDomain));
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error: " + ex.Message);
-            }
+            string message = "File accessed: " + filePath + " | Process: " + imgFileName;
+            EventLog.WriteEntry("WindowsFakeFileSystem", message, EventLogEntryType.Warning);
         }
 
         private void LoadFileSystemFromCsvString(string csvStr)
@@ -926,6 +803,15 @@ namespace WindowsFakeFileSystemService
             // Add installers to collection
             Installers.Add(serviceProcessInstaller);
             Installers.Add(serviceInstaller);
+        }
+    }
+
+    // Config section handler - returns the CDATA content of <fileList> as a plain string
+    public class FileListConfigSection : IConfigurationSectionHandler
+    {
+        public object Create(object parent, object configContext, XmlNode section)
+        {
+            return section.InnerText;
         }
     }
 }
