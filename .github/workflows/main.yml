@@ -3,43 +3,69 @@ name: Build ProjFS-Service MSI
 on:
   push:
     branches: [ main ]
-    tags:    [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.0.0) — leave blank to skip release"
+        required: false
+        default: ""
 
 env:
-  BUILD_DIR:    build
-  WIX_VERSION:  "3.14.1"
+  BUILD_DIR:   build
+  WIX_VERSION: "3.14.1"
+
+permissions:
+  contents: write   # Required to create releases and upload assets
 
 jobs:
-  build-msi:
+  build-and-release:
     runs-on: windows-latest
 
     steps:
-      # ── Checkout ──────────────────────────────────────────────────────────
+      # ── 1. Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Setup .NET Framework build tools ──────────────────────────────────
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+      # ── 2. Resolve version ─────────────────────────────────────────────────
+      #   Priority: workflow_dispatch input > git tag > no release
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = ""
 
-      - name: Add .NET Framework 4.8 Developer Pack
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '4.x'
+          if ("${{ github.event.inputs.version }}" -ne "") {
+            $version = "${{ github.event.inputs.version }}"
+            Write-Output "Source: workflow_dispatch input"
+          }
+          elseif ("${{ github.ref }}" -match "^refs/tags/v?(.+)$") {
+            $version = $Matches[1]
+            Write-Output "Source: git tag"
+          }
 
-      # ── Restore NuGet packages (none required, but keeps the step for future use) ──
-      - name: Restore NuGet packages
-        run: nuget restore ProjFS-Service.sln -NonInteractive
-        continue-on-error: true
+          if ($version -ne "") {
+            $tag = "v$version"
+            Write-Output "Version : $version"
+            Write-Output "Tag     : $tag"
+            "VERSION=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "TAG=$tag"         | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "DO_RELEASE=true"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Output "No version resolved - artifact only, no release."
+            "DO_RELEASE=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
 
-      # ── Compile the service executable ────────────────────────────────────
+      # ── 3. Prepare build directory ─────────────────────────────────────────
+      - name: Prepare build directory
+        shell: cmd
+        run: md %BUILD_DIR% 2>nul & exit 0
+
+      # ── 4. Compile ProjFS-Service.exe ──────────────────────────────────────
       - name: Compile ProjFS-Service.exe
         shell: cmd
         run: |
-          md %BUILD_DIR% 2>nul
           "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" ^
             /target:exe ^
             /platform:x64 ^
@@ -51,7 +77,7 @@ jobs:
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xml.dll" ^
             ProjFS-Service.cs
 
-      # ── Compile the installer UI helper ───────────────────────────────────
+      # ── 5. Compile ProjFS-Service.Installer.exe ────────────────────────────
       - name: Compile ProjFS-Service.Installer.exe
         shell: cmd
         run: |
@@ -63,26 +89,40 @@ jobs:
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xml.dll" ^
             ProjFS-Service.Installer.cs
 
-      # ── Copy App.config ───────────────────────────────────────────────────
+      # ── 6. Copy App.config ─────────────────────────────────────────────────
       - name: Copy App.config
         shell: cmd
         run: copy ProjFS-Service.exe.config %BUILD_DIR%\ProjFS-Service.exe.config
 
-      # ── Install WiX Toolset ───────────────────────────────────────────────
+      # ── 7. Install WiX Toolset ─────────────────────────────────────────────
       - name: Install WiX Toolset
         shell: pwsh
         run: |
           choco install wixtoolset --version $env:WIX_VERSION -y --no-progress
           $wixBin = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
-          echo "$wixBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$wixBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      # ── Build MSI ─────────────────────────────────────────────────────────
-      - name: Compile WiX source
+      # ── 8. Inject version into WiX source ──────────────────────────────────
+      #   Falls back to 1.0.0.0 on non-release builds so candle never fails.
+      - name: Inject version into WiX source
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.VERSION }}"
+          if ($v -eq "") { $v = "1.0.0" }
+          $fourPart = "$v.0"
+          (Get-Content ProjFS-Service.wxs) `
+            -replace 'Version="1\.0\.0\.0"', ('Version="' + $fourPart + '"') |
+            Set-Content ProjFS-Service.wxs
+          Write-Output "WiX version set to $fourPart"
+
+      # ── 9. Compile WiX source ──────────────────────────────────────────────
+      - name: Compile WiX source (candle)
         shell: cmd
         run: |
           candle.exe -arch x64 -out %BUILD_DIR%\ProjFS-Service.wixobj ProjFS-Service.wxs
 
-      - name: Link MSI
+      # ── 10. Link MSI ────────────────────────────────────────────────────────
+      - name: Link MSI (light)
         shell: cmd
         run: |
           light.exe ^
@@ -91,17 +131,59 @@ jobs:
             -out %BUILD_DIR%\ProjFS-Service.msi ^
             %BUILD_DIR%\ProjFS-Service.wixobj
 
-      # ── Upload artefact ───────────────────────────────────────────────────
-      - name: Upload MSI artefact
+      # ── 11. Name the MSI ────────────────────────────────────────────────────
+      #   Versioned filename on releases, plain name on CI builds.
+      - name: Name MSI
+        id: msi
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.VERSION }}"
+          if ($v -ne "") {
+            $src  = "$env:BUILD_DIR\ProjFS-Service.msi"
+            $dest = "$env:BUILD_DIR\ProjFS-Service-$v.msi"
+            Move-Item $src $dest
+            "MSI_PATH=$dest"                        | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "MSI_NAME=ProjFS-Service-$v.msi"        | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          } else {
+            "MSI_PATH=$env:BUILD_DIR\ProjFS-Service.msi" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            "MSI_NAME=ProjFS-Service.msi"                | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+
+      # ── 12. Upload build artifact (every run) ───────────────────────────────
+      - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ProjFS-Service-MSI
-          path: ${{ env.BUILD_DIR }}\ProjFS-Service.msi
+          name: ${{ steps.msi.outputs.MSI_NAME }}
+          path: ${{ steps.msi.outputs.MSI_PATH }}
           retention-days: 30
 
-      # ── Attach to GitHub Release (only on version tags) ───────────────────
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
+      # ── 13. Create GitHub Release and attach MSI ────────────────────────────
+      #   Only runs when a version was resolved (tag push or manual dispatch).
+      #   Creates the release if it does not exist; updates it if it does.
+      - name: Create GitHub Release
+        if: steps.version.outputs.DO_RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.BUILD_DIR }}\ProjFS-Service.msi
+          tag_name:               ${{ steps.version.outputs.TAG }}
+          name:                   "ProjFS-Service ${{ steps.version.outputs.TAG }}"
+          draft:                  false
+          prerelease:             false
+          generate_release_notes: true
+          body: |
+            ## ProjFS Fake File System Service ${{ steps.version.outputs.TAG }}
+
+            ### Installation
+            1. Download `${{ steps.msi.outputs.MSI_NAME }}` below.
+            2. Run the installer as **Administrator** (UAC prompt will appear).
+            3. The installer will:
+               - Enable the Windows **Client-ProjFS** optional feature
+               - Prompt for the virtual file system root path
+               - Install and start the **WindowsFakeFileSystem** service
+
+            ### Requirements
+            - Windows 10 version 1809 (build 17763) or later / Windows Server 2019+
+            - .NET Framework 4.8 runtime
+
+            ### Uninstallation
+            Use *Add or Remove Programs* or run the MSI again and choose *Remove*.
+          files: ${{ steps.msi.outputs.MSI_PATH }}
