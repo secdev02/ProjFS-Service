@@ -1,0 +1,107 @@
+name: Build ProjFS-Service MSI
+
+on:
+  push:
+    branches: [ main ]
+    tags:    [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  BUILD_DIR:    build
+  WIX_VERSION:  "3.14.1"
+
+jobs:
+  build-msi:
+    runs-on: windows-latest
+
+    steps:
+      # ── Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Setup .NET Framework build tools ──────────────────────────────────
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Add .NET Framework 4.8 Developer Pack
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '4.x'
+
+      # ── Restore NuGet packages (none required, but keeps the step for future use) ──
+      - name: Restore NuGet packages
+        run: nuget restore ProjFS-Service.sln -NonInteractive
+        continue-on-error: true
+
+      # ── Compile the service executable ────────────────────────────────────
+      - name: Compile ProjFS-Service.exe
+        shell: cmd
+        run: |
+          md %BUILD_DIR% 2>nul
+          "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" ^
+            /target:exe ^
+            /platform:x64 ^
+            /out:%BUILD_DIR%\ProjFS-Service.exe ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Configuration.dll" ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.ServiceProcess.dll" ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Configuration.Install.dll" ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.dll" ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xml.dll" ^
+            ProjFS-Service.cs
+
+      # ── Compile the installer UI helper ───────────────────────────────────
+      - name: Compile ProjFS-Service.Installer.exe
+        shell: cmd
+        run: |
+          "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" ^
+            /target:exe ^
+            /platform:x64 ^
+            /out:%BUILD_DIR%\ProjFS-Service.Installer.exe ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.dll" ^
+            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xml.dll" ^
+            ProjFS-Service.Installer.cs
+
+      # ── Copy App.config ───────────────────────────────────────────────────
+      - name: Copy App.config
+        shell: cmd
+        run: copy ProjFS-Service.exe.config %BUILD_DIR%\ProjFS-Service.exe.config
+
+      # ── Install WiX Toolset ───────────────────────────────────────────────
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          choco install wixtoolset --version $env:WIX_VERSION -y --no-progress
+          $wixBin = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          echo "$wixBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # ── Build MSI ─────────────────────────────────────────────────────────
+      - name: Compile WiX source
+        shell: cmd
+        run: |
+          candle.exe -arch x64 -out %BUILD_DIR%\ProjFS-Service.wixobj ProjFS-Service.wxs
+
+      - name: Link MSI
+        shell: cmd
+        run: |
+          light.exe ^
+            -ext WixUIExtension ^
+            -ext WixUtilExtension ^
+            -out %BUILD_DIR%\ProjFS-Service.msi ^
+            %BUILD_DIR%\ProjFS-Service.wixobj
+
+      # ── Upload artefact ───────────────────────────────────────────────────
+      - name: Upload MSI artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProjFS-Service-MSI
+          path: ${{ env.BUILD_DIR }}\ProjFS-Service.msi
+          retention-days: 30
+
+      # ── Attach to GitHub Release (only on version tags) ───────────────────
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.BUILD_DIR }}\ProjFS-Service.msi
