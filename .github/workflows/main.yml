@@ -63,17 +63,18 @@ jobs:
         run: md %BUILD_DIR% 2>nul & exit 0
 
       # ── 4. Compile ProjFS-Service.exe ──────────────────────────────────────
+      #   Use Framework64 csc.exe so /platform:x64 refs resolve against the
+      #   64-bit BCL automatically — no explicit /r: needed for inbox assemblies.
       - name: Compile ProjFS-Service.exe
         shell: cmd
         run: |
-          "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" ^
+          "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" ^
             /target:exe ^
             /platform:x64 ^
             /out:%BUILD_DIR%\ProjFS-Service.exe ^
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Configuration.dll" ^
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.ServiceProcess.dll" ^
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Configuration.Install.dll" ^
-            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.dll" ^
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xml.dll" ^
             ProjFS-Service.cs
 
@@ -81,11 +82,10 @@ jobs:
       - name: Compile ProjFS-Service.Installer.exe
         shell: cmd
         run: |
-          "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" ^
+          "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" ^
             /target:exe ^
             /platform:x64 ^
             /out:%BUILD_DIR%\ProjFS-Service.Installer.exe ^
-            /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.dll" ^
             /r:"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\System.Xml.dll" ^
             ProjFS-Service.Installer.cs
 
